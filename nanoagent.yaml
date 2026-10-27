@@ -1,0 +1,58 @@
+_ > nanoagent.plugin.v0001.ManifestConfig:
+id: parcel-postage
+name: Parcel Postage
+version: 0.1.0
+status: ready
+spec: nanoagent.plugin/v0001
+
+runtime > nanoagent.plugin.v0001.RuntimeConfig:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+
+permissions > nanoagent.plugin.v0001.PermissionsConfig:
+  network > nanoagent.plugin.v0001.NetworkConfig:
+    hosts: []
+  filesystem > nanoagent.plugin.v0001.FilesystemConfig:
+    write: [workspace]
+
+# One entry per contract.Tool; its input and output classes are contract.TOOLS's.
+tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
+  lookup_zone:
+    description: |-
+      Find the USPS zone between two ZIP codes. Pass the task's origin and destination ZIP codes unchanged.
+      A ZIP code is 5 digits or ZIP+4. The zone comes from the destination's prefix in the origin prefix's zone chart.
+      Returns {"origin_zip", "destination_zip", "zone", "zone_under_1_lb"}. Use zone_under_1_lb for a parcel under 1 pound, else zone.
+      Malformed ZIP codes raise "invalid ZIP"; a pair the charts give no zone for raises "no zone".
+  get_service_rules:
+    description: |-
+      Read a service's size and weight limits and dimensional weight rules. Pass the task's service.
+      Returns {"service", "prices_effective", "zones_effective", "max_weight", "max_length_plus_girth", "oversized_length_plus_girth", "dimensional_volume", "dimensional_divisor"}.
+      Limits are decimal text in pounds, inches, and cubic inches.
+  get_rate_table:
+    description: |-
+      Read a service's retail prices in one zone. Pass the task's service and a zone from 1 to 9.
+      Returns {"service", "zone", "tiers": [{"tier", "max_weight", "price"}, ...], "oversized", "surcharges": [{"fee", "amount"}, ...]}.
+      Tiers run lightest first, and max_weight is in pounds, so 4 oz is 0.25. Prices and amounts are dollars.
+      Zones outside 1 to 9 raise errors.
+  calculate:
+    description: |-
+      Calculate a decimal expression using + - * / and parentheses, such as "10 + 2 * (8 + 4)" or "24 * 12 * 12 / 139".
+      Returns {"expression", "value"}, using 28-digit decimal precision.
+      Invalid expressions and division by zero raise errors.
+
+# One entry per contract.Task; its input class is contract.TASKS's.
+tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
+  price-parcel:
+    description: Price a USPS Ground Advantage retail parcel between two ZIP codes, or explain why it cannot be mailed.
+    runner: agent
+    tools: [lookup_zone, get_service_rules, get_rate_table, calculate]
+    reference: null
+    instructions: |-
+      Submit {"status": ..., "zone": ..., "tier": ..., "postage": ..., "surcharges": [{"fee": ..., "amount": ...}, ...], "total": ...}. Unless status is priced, zone is 0, surcharges is [], and the other fields are empty. Check in this order and submit the first status that applies. Use calculate for every sum, product, and quotient. Make each turn's calls in parallel: turns are limited.
+      1. Trim surrounding spaces. If the weight, length, width, or height is not a decimal above zero such as 2.3 or 10 (digits required on both sides of a decimal point), submit invalid_parcel.
+      2. Call lookup_zone with both ZIP codes and get_service_rules with the service. If lookup_zone raises invalid ZIP, submit invalid_zip; if it raises no zone, submit no_zone. The parcel's zone is zone_under_1_lb if the weight is under 1, else zone.
+      3. If the weight is over max_weight, submit too_heavy. The length is the longest side, and the girth is twice the sum of the other two sides. If length + girth is over max_length_plus_girth, submit too_large.
+      4. Call get_rate_table with the service and the zone. If length + girth is over oversized_length_plus_girth, the tier is oversized, the postage is the oversized price, and there are no surcharges: go to step 7.
+      5. Round each side up to a whole inch and multiply the three. If the product is over dimensional_volume, the dimensional weight is product / dimensional_divisor rounded up to a whole number, but at most max_weight; otherwise it is 0. The billed weight is the larger of the weight and the dimensional weight. The tier is the first tier whose max_weight is at least the billed weight, and the postage is its price.
+      6. Add the surcharge length_over_30_in if the length is over 30, or else length_over_22_in if it is over 22. Also add volume_over_2_cu_ft if the sides, each rounded to the nearest inch (a half rounds up), multiply to over 3456. Each surcharge takes its amount from the rate table.
+      7. Call calculate on the postage plus every surcharge amount. Submit priced with the zone, the tier's name, the postage, the surcharges, and the value as total, such as "19.70".

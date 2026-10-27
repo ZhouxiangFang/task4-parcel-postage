@@ -1,0 +1,12 @@
+_ > nanoagent.plugin.v0001.ProductConfig:
+tagline: "Price a USPS parcel from its weight, size, and ZIP codes"
+summary: "Enter two ZIP codes, a box's weight, and its three sides. The agent looks up the USPS zone, the size limits, and the zone's price table, then works out the USPS Ground Advantage retail postage and any oversize surcharges. Prices took effect October 4, 2026; zone charts October 1, 2026."
+highlights:
+  - "Covers every US ZIP code prefix with a USPS zone chart"
+  - "Applies dimensional weight, oversized pricing, and nonstandard fees"
+  - "Shows the zone, price tier, surcharges, and total"
+  - "Every answer is checked against a fixed copy of the USPS price list"
+steps:
+  - "Ask: Ship a 2.3 lb box, 10 x 8 x 4 inches, from 77005 to 10001"
+  - "The agent looks up the zone, the rules, and the price table"
+  - "View the postage breakdown and its verification result"
